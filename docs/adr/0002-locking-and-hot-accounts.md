@@ -25,6 +25,6 @@ reconciliation recomputes every balance from entries (ADR 0005).
 - No retry loops in application code, and no serialization failures to tune.
 - A single very hot account (one merchant receiving most payments) serialises
   its writers. The load test shows the cost: with 50 accounts the p99 is
-  ~180 ms; with 5 accounts it is ~680 ms and throughput halves. The usual
+  ~140 ms; with 5 accounts it is ~600 ms and throughput halves. The usual
   fixes, if a real hot account appears, are sharding it into N sub-accounts
   summed for display, or batching its credits asynchronously.

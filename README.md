@@ -36,10 +36,10 @@ flowchart LR
 
 | Scenario | Throughput | p50 | p95 | p99 | Duplicate postings | Books balance |
 |---|---|---|---|---|---|---|
-| 32 clients, 50 accounts | 775 postings/s (861 req/s) | 27 ms | 103 ms | 181 ms | 0 of 2,533 retries | ✅ |
-| 32 clients, 5 hot accounts | 390 postings/s (445 req/s) | 15 ms | 373 ms | 677 ms | 0 of 908 retries | ✅ |
+| 32 clients, 50 accounts | 957 postings/s (1,062 req/s) | 22 ms | 82 ms | 142 ms | 0 of 3,086 retries | ✅ |
+| 32 clients, 5 hot accounts | 470 postings/s (523 req/s) | 13 ms | 319 ms | 605 ms | 0 of 1,020 retries | ✅ |
 
-The second row is the honest cost of row locks: when everyone writes to the same few accounts, they queue. [ADR 0002](docs/adr/0002-locking-and-hot-accounts.md) covers why that trade-off was chosen and how a real hot account would be split. Clients are a closed loop (one request at a time each), so these are service times under that concurrency, not latencies at a fixed arrival rate. In the same runs, all 31,115 outbox events were delivered and none were left pending.
+The second row is the honest cost of row locks: when everyone writes to the same few accounts, they queue. [ADR 0002](docs/adr/0002-locking-and-hot-accounts.md) covers why that trade-off was chosen and how a real hot account would be split. Clients are a closed loop (one request at a time each), so these are service times under that concurrency, not latencies at a fixed arrival rate. In the same runs, all 38,155 outbox events were delivered and none were left pending.
 
 ## Try it in 2 minutes
 
