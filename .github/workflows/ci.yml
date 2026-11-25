@@ -55,7 +55,9 @@ jobs:
       - name: Load test
         run: go run ./cmd/loadtest -url http://localhost:8080 -token demo-token-change-me-0123456789abcdef -duration 20s -workers 16 | tee loadtest.txt
       - name: Reconcile from the CLI
-        run: docker compose exec -T ledger /ledger reconcile > recon.json && grep -q '"clean": true' recon.json
+        run: |
+          docker compose exec -T ledger /ledger reconcile > recon.json
+          grep -q '"clean": true' recon.json
       - name: Every event delivered once
         run: |
           for i in $(seq 1 30); do
