@@ -1,0 +1,35 @@
+# Local demo: Postgres, the ledger, and a consumer for its events.
+#   make up && make loadtest
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ledger
+      POSTGRES_PASSWORD: ledger
+      POSTGRES_DB: ledger
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledger"]
+      interval: 2s
+      retries: 20
+    ports: ["5432:5432"]
+
+  ledger:
+    build: .
+    environment:
+      DATABASE_URL: postgres://ledger:ledger@postgres:5432/ledger?sslmode=disable&pool_max_conns=40
+      LEDGER_API_TOKEN: demo-token-change-me-0123456789abcdef
+      OUTBOX_WEBHOOK_URL: http://events:8081/
+      RECONCILE_INTERVAL: 1m
+    depends_on:
+      postgres: { condition: service_healthy }
+    ports: ["8080:8080"]
+    healthcheck:
+      test: ["CMD", "/ledger", "-healthcheck", "http://localhost:8080/readyz"]
+      interval: 2s
+      retries: 20
+
+  # A minimal consumer that de-duplicates events on their ID.
+  events:
+    build: .
+    entrypoint: ["/eventsink"]
+    ports: ["8081:8081"]

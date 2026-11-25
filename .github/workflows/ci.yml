@@ -1,0 +1,95 @@
+name: ci
+on:
+  push: { branches: [main], tags: ["v*"] }
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: ledger
+          POSTGRES_PASSWORD: ledger
+          POSTGRES_DB: ledger_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ledger" --health-interval 2s --health-retries 20
+    env:
+      LEDGER_TEST_DATABASE_URL: postgres://ledger:ledger@localhost:5432/ledger_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: { go-version: "1.26" }
+      - name: Format
+        run: test -z "$(gofmt -l .)"
+      - name: Verify module checksums
+        run: go mod verify
+      - name: Vet
+        run: go vet ./...
+      - name: Staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+      - name: Vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.10.0 ./...
+      - name: Test (against Postgres, with the race detector)
+        run: go test -race -count=1 -coverprofile=cover.out ./...
+      - name: Coverage
+        run: go tool cover -func=cover.out | tail -1
+      - name: Fuzz money parsing
+        run: go test -run '^$' -fuzz FuzzParseFormat -fuzztime 20s ./internal/money
+
+  # Boot the real stack from compose.yaml, push load through it, and check
+  # the books balance and every event reached the consumer exactly once.
+  demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with: { go-version: "1.26" }
+      - name: Start stack
+        run: docker compose up --build -d --wait
+      - name: Load test
+        run: go run ./cmd/loadtest -url http://localhost:8080 -token demo-token-change-me-0123456789abcdef -duration 20s -workers 16 | tee loadtest.txt
+      - name: Reconcile from the CLI
+        run: docker compose exec -T ledger /ledger reconcile > recon.json && grep -q '"clean": true' recon.json
+      - name: Every event delivered once
+        run: |
+          for i in $(seq 1 30); do
+            pending=$(docker compose exec -T postgres psql -U ledger -tAc "select count(*) from outbox where published_at is null")
+            [ "$pending" = "0" ] && break; sleep 1
+          done
+          total=$(docker compose exec -T postgres psql -U ledger -tAc "select count(*) from outbox")
+          stats=$(curl -s localhost:8081/stats); echo "outbox=$total pending=$pending consumer=$stats"
+          [ "$pending" = "0" ]
+          echo "$stats" | grep -q "\"received\":$total,"
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --tail 100
+
+  image:
+    needs: [test, demo]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          build-args: VERSION=${{ github.ref_name }}
+          tags: ghcr.io/sillykea/payments-ledger:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
