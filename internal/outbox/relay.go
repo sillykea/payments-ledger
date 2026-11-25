@@ -10,10 +10,14 @@ package outbox
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -134,9 +138,27 @@ func Pending(ctx context.Context, pool *pgxpool.Pool) (int64, error) {
 
 // Webhook POSTs each event as JSON. The event ID goes in the
 // Idempotency-Key header so the receiver can drop duplicates.
+//
+// When Secret is set, each request carries
+//
+//	X-Ledger-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">
+//
+// so the receiver can check the event came from this ledger and is recent.
+// The timestamp is signed too, so an old request can't be replayed later.
 type Webhook struct {
 	URL    string
+	Secret []byte
 	Client *http.Client
+	now    func() time.Time
+}
+
+// Sign returns the X-Ledger-Signature value for body at time t.
+func Sign(secret, body []byte, t time.Time) string {
+	ts := strconv.FormatInt(t.Unix(), 10)
+	mac := hmac.New(sha256.New, secret)
+	mac.Write([]byte(ts + "."))
+	mac.Write(body)
+	return "t=" + ts + ",v1=" + hex.EncodeToString(mac.Sum(nil))
 }
 
 func (w Webhook) Publish(ctx context.Context, ev Event) error {
@@ -147,6 +169,13 @@ func (w Webhook) Publish(ctx context.Context, ev Event) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Idempotency-Key", ev.EventID)
 	req.Header.Set("X-Event-Type", ev.Topic)
+	if len(w.Secret) > 0 {
+		now := time.Now
+		if w.now != nil {
+			now = w.now
+		}
+		req.Header.Set("X-Ledger-Signature", Sign(w.Secret, ev.Payload, now()))
+	}
 	c := w.Client
 	if c == nil {
 		c = &http.Client{Timeout: 10 * time.Second}

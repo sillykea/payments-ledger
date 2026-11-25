@@ -114,6 +114,7 @@ Tests run against a real Postgres (CI starts one; locally `make up` then `make t
 | `LEDGER_API_TOKEN` | required | 32+ characters |
 | `LEDGER_LISTEN` | `:8080` | |
 | `OUTBOX_WEBHOOK_URL` | log only | Where events are POSTed |
+| `OUTBOX_WEBHOOK_SECRET` | unset | Signs each event: `X-Ledger-Signature: t=<unix>,v1=<HMAC-SHA256 of "<t>.<body>">` |
 | `RECONCILE_INTERVAL` | `1h` | `0` turns the background run off |
 | `AUTO_MIGRATE` | `true` | Apply migrations on start (guarded by an advisory lock) |
 

@@ -12,6 +12,7 @@
 //	LEDGER_API_TOKEN     bearer token for /v1 (32+ characters)
 //	LEDGER_LISTEN        listen address (default :8080)
 //	OUTBOX_WEBHOOK_URL   where to POST events (default: write them to the log)
+//	OUTBOX_WEBHOOK_SECRET  if set, sign each event (X-Ledger-Signature, HMAC-SHA256)
 //	RECONCILE_INTERVAL   how often to reconcile in the background (default 1h, 0 = off)
 //	AUTO_MIGRATE         apply migrations on start (default true)
 package main
@@ -157,7 +158,7 @@ func serve(ctx context.Context, log *slog.Logger) error {
 	reg := metrics.New()
 	var pub outbox.Publisher = outbox.Log{Logger: log}
 	if u := os.Getenv("OUTBOX_WEBHOOK_URL"); u != "" {
-		pub = outbox.Webhook{URL: u}
+		pub = outbox.Webhook{URL: u, Secret: []byte(os.Getenv("OUTBOX_WEBHOOK_SECRET"))}
 	}
 	relay := &outbox.Relay{Pool: pool, Publisher: pub, Logger: log,
 		OnPublished: func(n int) { reg.Add("ledger_outbox_published_total", "", float64(n)) }}

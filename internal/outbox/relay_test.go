@@ -9,8 +9,11 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sillykea/payments-ledger/internal/ledger"
 	"github.com/sillykea/payments-ledger/internal/outbox"
@@ -148,3 +151,39 @@ func TestWebhook(t *testing.T) {
 		t.Error("a 503 was treated as delivered")
 	}
 }
+
+func TestWebhookSignature(t *testing.T) {
+	var sig string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sig = r.Header.Get("X-Ledger-Signature")
+	}))
+	defer srv.Close()
+	body := []byte(`{"event_id":"evt_1"}`)
+
+	unsigned := outbox.Webhook{URL: srv.URL}
+	if err := unsigned.Publish(ctx, outbox.Event{EventID: "evt_1", Payload: body}); err != nil {
+		t.Fatal(err)
+	}
+	if sig != "" {
+		t.Errorf("signed without a secret: %q", sig)
+	}
+
+	signed := outbox.Webhook{URL: srv.URL, Secret: []byte("s3cret")}
+	if err := signed.Publish(ctx, outbox.Event{EventID: "evt_1", Payload: body}); err != nil {
+		t.Fatal(err)
+	}
+	ts := strings.TrimPrefix(strings.Split(sig, ",")[0], "t=")
+	sec, err := strconv.ParseInt(ts, 10, 64)
+	if err != nil {
+		t.Fatalf("bad signature header %q", sig)
+	}
+	if want := outbox.Sign([]byte("s3cret"), body, time.Unix(sec, 0)); sig != want {
+		t.Errorf("signature %q, want %q", sig, want)
+	}
+	// A known vector, so a receiver in another language can check its code.
+	if got := outbox.Sign([]byte("s3cret"), body, time.Unix(1700000000, 0)); got != "t=1700000000,v1="+knownVector {
+		t.Errorf("known vector: got %s", got)
+	}
+}
+
+const knownVector = "6cee9870342146e9ec63da18ecb1ee83e669ab35b33530cae78683ebcf468945"
